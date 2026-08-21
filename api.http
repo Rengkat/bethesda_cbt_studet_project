@@ -1,0 +1,197 @@
+
+@baseUrl = http://localhost:5000
+
+# Change these to match what's in your database / .env
+@adminUsername = admin
+@adminPassword = admin123
+@studentRegNumber = STU001
+@studentPassword = student123
+@adminToken = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhODgxMTlmMDUyYWYxNGE1MjdlNGE2NyIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc4NzMwMjc4NywiZXhwIjoxNzg3MzE3MTg3fQ.W583RYwuqJybgtwMvF6_6_dKfKFI7U5XZf02VIZJUiY
+### -------------------------------------------------------------------------
+### Health check
+### -------------------------------------------------------------------------
+
+# @name health
+GET {{baseUrl}}/api/health
+
+
+### =========================================================================
+### ADMIN
+### =========================================================================
+
+### Admin login — saves the token for every admin request below
+# @name adminLogin
+POST {{baseUrl}}/api/admin/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+
+
+### List all students
+# @name listStudents
+GET {{baseUrl}}/api/admin/students
+Authorization: Bearer {{adminToken}}
+
+
+### Add a new student — saves its id for the update/delete requests below
+# @name createStudent
+POST {{baseUrl}}/api/admin/students
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "fullName": "Test Student",
+  "regNumber": "STU999",
+  "password": "test1234",
+  "studentClass": "SS1"
+}
+
+@newStudentId = {{createStudent.response.body.student._id}}
+
+
+### Edit that student (password is optional — omit it to leave unchanged)
+# @name updateStudent
+PUT {{baseUrl}}/api/admin/students/{{newStudentId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "fullName": "Test Student Updated",
+  "regNumber": "STU999",
+  "studentClass": "SS1"
+}
+
+
+### Delete that student
+# @name deleteStudent
+DELETE {{baseUrl}}/api/admin/students/{{newStudentId}}
+Authorization: Bearer {{adminToken}}
+
+
+### Create an exam — saves its id for the student requests below
+# @name createExam
+POST {{baseUrl}}/api/admin/exams
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "title": "Basic Maths Test",
+  "subject": "Mathematics",
+  "examClass": "SS1",
+  "durationMinutes": 30,
+  "questions": [
+    {
+      "passage": "",
+      "questionText": "What is 2 + 2?",
+      "options": ["3", "4", "5", "6"],
+      "answer": "4"
+    },
+    {
+      "passage": "",
+      "questionText": "What is 10 / 2?",
+      "options": ["2", "4", "5", "10"],
+      "answer": "5"
+    }
+  ]
+}
+
+@examId = {{createExam.response.body.exam._id}}
+
+
+### List all exams
+# @name listExams
+GET {{baseUrl}}/api/admin/exams
+Authorization: Bearer {{adminToken}}
+
+
+### View all results
+# @name listResults
+GET {{baseUrl}}/api/admin/results
+Authorization: Bearer {{adminToken}}
+
+
+### View results filtered to one exam
+# @name listResultsForExam
+GET {{baseUrl}}/api/admin/results?examId={{examId}}
+Authorization: Bearer {{adminToken}}
+
+
+### =========================================================================
+### STUDENT
+### Make sure @studentRegNumber / @studentPassword above match a real student
+### (e.g. one you seeded, or the one created by createExam's studentClass).
+### =========================================================================
+
+### Student login — saves the token for every student request below
+# @name studentLogin
+POST {{baseUrl}}/api/student/login
+Content-Type: application/json
+
+{
+  "regNumber": "{{studentRegNumber}}",
+  "password": "{{studentPassword}}"
+}
+
+@studentToken = {{studentLogin.response.body.token}}
+
+
+### Get the logged-in student's own profile
+# @name studentMe
+GET {{baseUrl}}/api/student/me
+Authorization: Bearer {{studentToken}}
+
+
+### List exams available to this student's class
+# @name studentExams
+GET {{baseUrl}}/api/student/exams
+Authorization: Bearer {{studentToken}}
+
+
+### Get one exam's questions (answers stripped out) to take it
+# Swap {{examId}} for a real exam id from studentExams if it differs
+# @name studentGetExam
+GET {{baseUrl}}/api/student/exams/{{examId}}
+Authorization: Bearer {{studentToken}}
+
+
+### Submit answers for that exam
+# Swap the questionId values for real ones returned by studentGetExam
+# @name studentSubmitExam
+POST {{baseUrl}}/api/student/exams/{{examId}}/submit
+Authorization: Bearer {{studentToken}}
+Content-Type: application/json
+
+{
+  "answers": [
+    { "questionId": "REPLACE_WITH_QUESTION_ID_1", "selectedOption": "4" },
+    { "questionId": "REPLACE_WITH_QUESTION_ID_2", "selectedOption": "5" }
+  ]
+}
+
+
+### =========================================================================
+### ERROR CASES — handy for confirming validation/auth behave correctly
+### =========================================================================
+
+### No token at all -> 401
+# @name noAuth
+GET {{baseUrl}}/api/admin/students
+
+### Wrong role's token (student token on an admin route) -> 401
+# @name wrongRole
+GET {{baseUrl}}/api/admin/students
+Authorization: Bearer {{studentToken}}
+
+### Bad admin login -> 400
+# @name badAdminLogin
+POST {{baseUrl}}/api/admin/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "wrong-password"
+}
