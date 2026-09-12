@@ -109,6 +109,14 @@ that, the user has to log in again.
 - Add an exam: title, subject, class, duration (minutes), and a list of questions
   (each question can have an optional passage, question text, a flexible number
   of options — add/remove per question — and one correct answer)
+- Add questions one at a time by hand, **or** bulk-import them from a CSV
+  file — both when creating an exam and when adding more questions to an
+  existing one later. See `questions-sample.csv` for the expected columns
+  (`question, passage, answer, option1..option6`); `passage` and
+  `option3`-`option6` are optional, everything else is required, and
+  `answer` must match one of that row's options exactly. The whole file is
+  validated before anything is saved, and any problem rows are reported
+  with their row number so they're easy to fix and re-upload.
 - View all submitted results
 
 **Student** (`/student-login.html`):
@@ -128,8 +136,11 @@ CBT_BACKEND/                 deployed as its own service
   config/db.js                 MongoDB connection
   models/                      Mongoose schemas (Admin, Student, Exam, Result)
   middleware/auth.js           verifies the JWT sent in the Authorization header
+  middleware/upload.js         multer config for the CSV bulk-question upload
+  utils/parseQuestionsCsv.js   parses + validates an uploaded questions CSV
   routes/adminRoutes.js        all /api/admin/* routes
   routes/studentRoutes.js      all /api/student/* routes
+  questions-sample.csv         template for bulk-importing exam questions
 
 public/                      deployed separately as a static site
   js/config.js                  sets API_BASE_URL — the one thing to edit per deployment

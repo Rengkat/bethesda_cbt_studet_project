@@ -8,6 +8,28 @@ const Student = require('../models/Student');
 const Exam = require('../models/Exam');
 const Result = require('../models/Result');
 const { requireAdmin } = require('../middleware/auth');
+const { csvUpload } = require('../middleware/upload');
+const { parseQuestionsCsv } = require('../utils/parseQuestionsCsv');
+
+// Shared by both the "create exam" and "bulk add questions" routes: checks
+// every question has real text, at least 2 non-blank options, and an answer
+// that matches one of those options exactly. Returns an error message
+// string for the first bad question found, or null if everything is valid.
+function validateQuestions(questions) {
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    if (!q.questionText || !q.questionText.trim()) {
+      return `Question ${i + 1} is missing its text`;
+    }
+    if (!Array.isArray(q.options) || q.options.filter(o => o && o.trim()).length < 2) {
+      return `Question ${i + 1} needs at least 2 options`;
+    }
+    if (!q.answer || !q.options.includes(q.answer)) {
+      return `Question ${i + 1}'s answer must match one of its options exactly`;
+    }
+  }
+  return null;
+}
 
 /* ---------------- LOGIN ---------------- */
 // There is no /logout route here because a JWT token is stateless — the
@@ -122,9 +144,18 @@ router.delete('/students/:id', requireAdmin, async (req, res) => {
 /* ---------------- EXAM MANAGEMENT ---------------- */
 
 // POST /api/admin/exams  (add exam with questions)
-router.post('/exams', requireAdmin, async (req, res) => {
+//
+// Supports two ways of supplying questions, so the admin frontend can offer
+// either workflow:
+//   1. JSON request, e.g. { title, subject, ..., questions: [ {...}, {...} ] }
+//      — used for typing in one question (or a handful) by hand.
+//   2. multipart/form-data request with the exam's fields as text fields
+//      plus a CSV file attached as "questionsCsv" — used for bulk-adding
+//      many questions at once. When a file is attached it always wins over
+//      any `questions` field, since the CSV is the bulk-import path.
+router.post('/exams', requireAdmin, csvUpload('questionsCsv'), async (req, res) => {
   try {
-    const { title, subject, examClass, durationMinutes, questions } = req.body;
+    const { title, subject, examClass, durationMinutes } = req.body;
 
     if (!title || !subject || !examClass) {
       return res.status(400).json({ message: 'Title, subject and class are required' });
@@ -135,22 +166,33 @@ router.post('/exams', requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Duration must be a number of minutes, at least 1' });
     }
 
-    if (!Array.isArray(questions) || questions.length === 0) {
-      return res.status(400).json({ message: 'Add at least one question' });
+    let questions;
+
+    if (req.file) {
+      // Bulk path: questions came from an uploaded CSV.
+      const { questions: parsedQuestions, errors } = parseQuestionsCsv(req.file.buffer);
+      if (errors.length > 0) {
+        return res.status(400).json({ message: 'The CSV file has errors', errors });
+      }
+      if (parsedQuestions.length === 0) {
+        return res.status(400).json({ message: 'The CSV file has no valid questions' });
+      }
+      questions = parsedQuestions;
+    } else {
+      // Single/manual path: questions came as JSON in the request body.
+      // (When the request is multipart without a file, express.json() never
+      // ran, but multer still parses text fields into req.body as strings —
+      // there's no "questions" array to receive in that case.)
+      questions = req.body.questions;
     }
 
-    // Basic validation of every question before saving
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
-      if (!q.questionText || !q.questionText.trim()) {
-        return res.status(400).json({ message: `Question ${i + 1} is missing its text` });
-      }
-      if (!Array.isArray(q.options) || q.options.filter(o => o && o.trim()).length < 2) {
-        return res.status(400).json({ message: `Question ${i + 1} needs at least 2 options` });
-      }
-      if (!q.answer || !q.options.includes(q.answer)) {
-        return res.status(400).json({ message: `Question ${i + 1}'s answer must match one of its options exactly` });
-      }
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ message: 'Add at least one question, or attach a CSV file' });
+    }
+
+    const validationError = validateQuestions(questions);
+    if (validationError) {
+      return res.status(400).json({ message: validationError });
     }
 
     const exam = await Exam.create({
@@ -162,6 +204,45 @@ router.post('/exams', requireAdmin, async (req, res) => {
     });
 
     res.status(201).json({ message: 'Exam created', exam });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// POST /api/admin/exams/:id/questions/bulk  (add more questions to an
+// existing exam in bulk, via CSV)
+//
+// Send a multipart/form-data request with the CSV attached as
+// "questionsCsv". The whole file is validated before anything is saved —
+// if any row has a problem, nothing is added, so the exam never ends up
+// with only half of an intended batch of questions.
+router.post('/exams/:id/questions/bulk', requireAdmin, csvUpload('questionsCsv'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Attach a CSV file as "questionsCsv"' });
+    }
+
+    const { questions, errors } = parseQuestionsCsv(req.file.buffer);
+    if (errors.length > 0) {
+      return res.status(400).json({ message: 'The CSV file has errors', errors });
+    }
+    if (questions.length === 0) {
+      return res.status(400).json({ message: 'The CSV file has no valid questions' });
+    }
+
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) {
+      return res.status(404).json({ message: 'Exam not found' });
+    }
+
+    exam.questions.push(...questions);
+    await exam.save();
+
+    res.status(200).json({
+      message: `${questions.length} question(s) added`,
+      addedCount: questions.length,
+      exam
+    });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
   }

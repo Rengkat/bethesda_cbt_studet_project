@@ -101,6 +101,53 @@ Content-Type: application/json
 @examId = {{createExam.response.body.exam._id}}
 
 
+### Create an exam in bulk from a CSV file instead of typing questions in
+### by hand — attach questions-sample.csv (or your own file with the same
+### columns: question, passage, answer, option1..option6) as "questionsCsv".
+### The REST Client extension reads the file relative to this .http file.
+# @name createExamFromCsv
+POST {{baseUrl}}/api/admin/exams
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=examBoundary
+
+--examBoundary
+Content-Disposition: form-data; name="title"
+
+Basic Maths Test (bulk)
+--examBoundary
+Content-Disposition: form-data; name="subject"
+
+Mathematics
+--examBoundary
+Content-Disposition: form-data; name="examClass"
+
+SS1
+--examBoundary
+Content-Disposition: form-data; name="durationMinutes"
+
+30
+--examBoundary
+Content-Disposition: form-data; name="questionsCsv"; filename="questions-sample.csv"
+Content-Type: text/csv
+
+< ./questions-sample.csv
+--examBoundary--
+
+
+### Bulk-add more questions to an already-existing exam via CSV
+# @name bulkAddQuestions
+POST {{baseUrl}}/api/admin/exams/{{examId}}/questions/bulk
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=examBoundary
+
+--examBoundary
+Content-Disposition: form-data; name="questionsCsv"; filename="questions-sample.csv"
+Content-Type: text/csv
+
+< ./questions-sample.csv
+--examBoundary--
+
+
 ### List all exams
 # @name listExams
 GET {{baseUrl}}/api/admin/exams
